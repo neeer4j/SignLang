@@ -1,0 +1,89 @@
+app name: sign language detector v2.0
+
+what it does:
+- real-time ASL (American Sign Language) recognition from webcam
+- tracks hands with mediapipe and shows landmarks
+- uses ML (random forest) to classify hand signs into letters/gestures
+- supports both static letters (A-Z) and dynamic gestures (wave, thumbs up)
+- saves translation history locally with user authentication
+- modern professional UI with multiple pages
+
+features:
+- login/signup with local SQLite database (secure password hashing)
+- animated dashboard with usage statistics
+- live translation with real-time predictions
+- sentence builder from detected signs
+- translation history with search and filter
+- user profile and settings
+- static mode (letters) and dynamic mode (gestures)
+- offline-first - no internet required
+
+tech stack:
+- python 3.x
+- PySide6 for UI (Qt6)
+- opencv for video capture
+- mediapipe for hand landmark detection
+- scikit-learn for ML classification
+- SQLite for local database (auth + history)
+- PBKDF2 for secure password hashing
+
+folder structure:
+├── main.py                 # app entry point
+├── config.py               # configuration settings
+├── signlanguage.db         # local SQLite database (auto-created)
+├── requirements.txt        # python dependencies
+│
+├── backend/
+│   └── services/
+│       └── db.py           # database service (auth, translations)
+│
+├── detector/
+│   ├── camera.py           # webcam handling
+│   ├── hand_tracker.py     # mediapipe hand tracking
+│   ├── features.py         # feature extraction
+│   └── dynamic_gestures.py # gesture recognition
+│
+├── ml/
+│   ├── classifier.py       # prediction with smoothing
+│   ├── data_collector.py   # collect training data
+│   └── trainer.py          # train ML model
+│
+├── ui/
+│   ├── main_window.py      # main app shell with navigation
+│   ├── styles.py           # premium dark theme
+│   ├── camera_widget.py    # camera display widget
+│   ├── control_panel.py    # controls
+│   ├── prediction_panel.py # prediction display
+│   └── pages/
+│       ├── login_page.py    # authentication
+│       ├── dashboard_page.py # main hub
+│       ├── live_page.py     # live translation
+│       ├── history_page.py  # translation history
+│       └── profile_page.py  # user settings
+│
+├── models/
+│   ├── gesture_model.pkl   # trained sklearn model
+│   ├── labels.pkl          # label encoder
+│   └── hand_landmarker.task # mediapipe model
+│
+└── data/                   # training data
+
+user flow:
+1. launch app -> login page
+2. create account or sign in (or skip for guest mode)
+3. dashboard shows stats and navigation
+4. click "Live Translation" -> camera with predictions
+5. make hand signs -> app recognizes and shows letters
+6. translations auto-saved to history (if logged in)
+7. view history page -> see past translations
+8. profile page -> settings and logout
+
+run it:
+python main.py
+
+architecture:
+- modular design (ML separate from UI, database separate from both)
+- stateless backend service
+- multi-page navigation with sidebar
+- async database operations
+- session-based authentication
