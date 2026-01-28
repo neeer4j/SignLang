@@ -10,6 +10,8 @@ from detector.camera import Camera
 from detector.hand_tracker import HandTracker
 from detector.features import FeatureExtractor
 from detector.dynamic_gestures import DynamicGestureTracker
+from detector.face_detector import FaceDetector, Emotion
+from ml.heuristic_classifier import HeuristicClassifier
 
 
 class CameraWidget(QFrame):
@@ -20,6 +22,8 @@ class CameraWidget(QFrame):
     hand_detected = Signal(bool)              # Emitted when hand detection status changes
     fps_updated = Signal(float)               # Emitted with current FPS
     dynamic_gesture_detected = Signal(str, float)  # Emitted when dynamic gesture detected (name, confidence)
+    emotion_detected = Signal(str, float)     # Emitted with detected emotion (name, confidence)
+    heuristic_gesture_detected = Signal(str, float)  # Reliable gesture from geometry
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -30,11 +34,15 @@ class CameraWidget(QFrame):
         self.hand_tracker = HandTracker()
         self.feature_extractor = FeatureExtractor()
         self.dynamic_tracker = DynamicGestureTracker()
+        self.face_detector = FaceDetector()
+        self.heuristic_classifier = HeuristicClassifier()
         
         # State
         self.is_running = False
         self._last_hand_detected = False
+        self._last_emotion = None
         self.dynamic_gestures_enabled = True  # Toggle for dynamic gesture recognition
+        self.emotion_detection_enabled = True  # Toggle for emotion detection
         
         # Setup UI
         self._setup_ui()
@@ -93,7 +101,7 @@ class CameraWidget(QFrame):
         if not success:
             return
         
-        # Process with MediaPipe
+        # Process with MediaPipe Hand Tracker
         self.hand_tracker.process(frame_rgb)
         
         # Check hand detection
@@ -107,9 +115,14 @@ class CameraWidget(QFrame):
         if hand_detected:
             landmarks = self.hand_tracker.get_landmarks()
             
-            # Extract features for static gesture recognition
+            # Extract features for ML-based gesture recognition
             features = self.feature_extractor.extract(landmarks)
             self.features_ready.emit(features)
+            
+            # Heuristic gesture detection (more reliable than ML on synthetic data)
+            heuristic_label, heuristic_conf = self.heuristic_classifier.predict(landmarks)
+            if heuristic_label and heuristic_conf > 0.5:
+                self.heuristic_gesture_detected.emit(heuristic_label, heuristic_conf)
         
         # Dynamic gesture tracking (runs even when hand disappears to finalize gestures)
         if self.dynamic_gestures_enabled:
@@ -117,9 +130,30 @@ class CameraWidget(QFrame):
             if gesture_name is not None and confidence > 0.6:
                 self.dynamic_gesture_detected.emit(gesture_name, confidence)
         
+        # Face/Emotion detection
+        emotion_result = None
+        if self.emotion_detection_enabled:
+            emotion_result = self.face_detector.process(frame_rgb)
+            if emotion_result and emotion_result.landmarks_detected:
+                if emotion_result.emotion != self._last_emotion:
+                    self._last_emotion = emotion_result.emotion
+                    self.emotion_detected.emit(
+                        emotion_result.emotion.value, 
+                        emotion_result.confidence
+                    )
+        
         # Draw landmarks and tracking visualization on frame
         frame_bgr = self.hand_tracker.draw_landmarks(frame_bgr)
         frame_bgr = self._draw_tracking_overlay(frame_bgr)
+        
+        # Draw face emotion overlay
+        if self.emotion_detection_enabled and emotion_result:
+            frame_bgr = self.face_detector.draw_landmarks(
+                frame_bgr, 
+                show_mesh=False, 
+                show_emotion=True,
+                emotion_result=emotion_result
+            )
         
         # Convert to QImage and display
         self._display_frame(frame_bgr)
@@ -184,8 +218,13 @@ class CameraWidget(QFrame):
         """Check if camera is active."""
         return self.is_running
     
+    def set_emotion_detection_enabled(self, enabled: bool):
+        """Enable or disable emotion detection."""
+        self.emotion_detection_enabled = enabled
+        self._last_emotion = None
+    
     def release(self):
         """Clean up resources."""
         self.stop()
         self.hand_tracker.release()
-
+        self.face_detector.release()

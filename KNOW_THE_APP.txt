@@ -5,6 +5,9 @@ what it does:
 - tracks hands with mediapipe and shows landmarks
 - uses ML (random forest) to classify hand signs into letters/gestures
 - supports both static letters (A-Z) and dynamic gestures (wave, thumbs up)
+- facial emotion detection (happy, sad, surprised, angry, neutral)
+- video file processing for offline sign language recognition
+- sentence-level translation with auto-translate timeout
 - saves translation history locally with user authentication
 - modern professional UI with multiple pages
 
@@ -12,7 +15,9 @@ features:
 - login/signup with local SQLite database (secure password hashing)
 - animated dashboard with usage statistics
 - live translation with real-time predictions
-- sentence builder from detected signs
+- video file upload and processing with playback controls
+- sentence builder from detected signs (instant or batched mode)
+- facial emotion recognition with overlay display
 - translation history with search and filter
 - user profile and settings
 - static mode (letters) and dynamic mode (gestures)
@@ -22,7 +27,7 @@ tech stack:
 - python 3.x
 - PySide6 for UI (Qt6)
 - opencv for video capture
-- mediapipe for hand landmark detection
+- mediapipe for hand landmark detection AND face mesh
 - scikit-learn for ML classification
 - SQLite for local database (auth + history)
 - PBKDF2 for secure password hashing
@@ -41,23 +46,27 @@ folder structure:
 │   ├── camera.py           # webcam handling
 │   ├── hand_tracker.py     # mediapipe hand tracking
 │   ├── features.py         # feature extraction
-│   └── dynamic_gestures.py # gesture recognition
+│   ├── dynamic_gestures.py # gesture recognition
+│   ├── video_source.py     # abstract video input (webcam/file)
+│   └── face_detector.py    # facial emotion detection (NEW)
 │
 ├── ml/
 │   ├── classifier.py       # prediction with smoothing
 │   ├── data_collector.py   # collect training data
-│   └── trainer.py          # train ML model
+│   ├── trainer.py          # train ML model
+│   └── gesture_accumulator.py # sentence-mode gesture buffering (NEW)
 │
 ├── ui/
 │   ├── main_window.py      # main app shell with navigation
 │   ├── styles.py           # premium dark theme
-│   ├── camera_widget.py    # camera display widget
+│   ├── camera_widget.py    # camera display widget (+ emotion overlay)
+│   ├── video_player_widget.py # video file player (NEW)
 │   ├── control_panel.py    # controls
 │   ├── prediction_panel.py # prediction display
 │   └── pages/
 │       ├── login_page.py    # authentication
 │       ├── dashboard_page.py # main hub
-│       ├── live_page.py     # live translation
+│       ├── live_page.py     # live translation (camera + video tabs)
 │       ├── history_page.py  # translation history
 │       └── profile_page.py  # user settings
 │
@@ -72,14 +81,24 @@ user flow:
 1. launch app -> login page
 2. create account or sign in (or skip for guest mode)
 3. dashboard shows stats and navigation
-4. click "Live Translation" -> camera with predictions
-5. make hand signs -> app recognizes and shows letters
-6. translations auto-saved to history (if logged in)
-7. view history page -> see past translations
-8. profile page -> settings and logout
+4. click "Live Translation" -> camera/video with predictions
+5. choose Camera (real-time) or Video File (upload .mp4, etc.)
+6. choose Translation Mode: Instant (letter-by-letter) or Sentence (batched)
+7. make hand signs -> app recognizes and shows letters + emotion
+8. click "Stop & Translate" in sentence mode to finalize
+9. translations auto-saved to history (if logged in)
+10. view history page -> see past translations
+11. profile page -> settings and logout
 
 run it:
 python main.py
+
+new in v2.0:
+- video file support (.mp4, .avi, .mov, .mkv, .webm)
+- facial emotion detection (5 emotions: happy, sad, surprised, angry, neutral)
+- sentence-mode translation with auto-translate timeout
+- video playback controls (play/pause, seek, speed 0.25x-2x)
+- improved training data generator (17,000+ samples)
 
 architecture:
 - modular design (ML separate from UI, database separate from both)
@@ -87,3 +106,4 @@ architecture:
 - multi-page navigation with sidebar
 - async database operations
 - session-based authentication
+- unified video source abstraction for camera and file input

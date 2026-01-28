@@ -46,3 +46,14 @@ COLORS = {
     "success": "#00d26a",
     "warning": "#ffc107",
 }
+
+# Translation Settings (Sentence Mode)
+TRANSLATION_TIME_WINDOW = 3.0    # Seconds of inactivity before auto-translate
+LETTER_DEBOUNCE_TIME = 0.8       # Minimum time between same letter
+CONFIDENCE_THRESHOLD = 0.75      # Minimum confidence for gesture acceptance
+
+# Video Processing Settings
+SUPPORTED_VIDEO_FORMATS = ['.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv']
+DEFAULT_PLAYBACK_SPEED = 1.0
+VIDEO_FAST_MODE_INTERVAL = 10    # ms between frames in fast mode
+VIDEO_NORMAL_INTERVAL = 33       # ms between frames (~30 FPS)

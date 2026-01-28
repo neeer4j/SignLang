@@ -1,19 +1,22 @@
 """
 Live Translation Page - Real-time sign language detection
-Premium camera view with predictions panel
+Premium camera view with video support and sentence-level translation
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QPushButton, QFrame, QGridLayout, QScrollArea,
     QGraphicsDropShadowEffect, QSizePolicy, QTextEdit,
-    QProgressBar
+    QProgressBar, QTabWidget, QStackedWidget
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QFont, QColor
 
 from ui.styles import COLORS, ICONS
 from ui.camera_widget import CameraWidget
+from ui.video_player_widget import VideoPlayerWidget
 from ml.classifier import Classifier
+from ml.gesture_accumulator import GestureAccumulator
+from config import TRANSLATION_TIME_WINDOW, CONFIDENCE_THRESHOLD
 
 
 class PredictionDisplay(QFrame):
@@ -130,10 +133,11 @@ class PredictionDisplay(QFrame):
 
 
 class SentenceBuilder(QFrame):
-    """Build sentences from detected letters."""
+    """Build sentences from detected letters with accumulation mode."""
     
     clear_requested = Signal()
     copy_requested = Signal(str)
+    translate_requested = Signal()  # New signal for manual translate
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -141,6 +145,7 @@ class SentenceBuilder(QFrame):
         self._sentence = ""
         self._last_letter = ""
         self._last_letter_time = 0
+        self._accumulation_mode = False  # Sentence mode vs instant mode
         self._setup_ui()
     
     def _setup_ui(self):
@@ -182,6 +187,17 @@ class SentenceBuilder(QFrame):
         self.sentence_label.setWordWrap(True)
         self.sentence_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         layout.addWidget(self.sentence_label)
+        
+        # Buffer preview (for accumulation mode)
+        self.buffer_label = QLabel("")
+        self.buffer_label.setStyleSheet(f"""
+            font-size: 14px;
+            color: {COLORS['text_secondary']};
+            padding: 8px;
+        """)
+        self.buffer_label.setWordWrap(True)
+        self.buffer_label.hide()
+        layout.addWidget(self.buffer_label)
     
     def add_letter(self, letter):
         """Add a letter to the sentence with debouncing."""
@@ -207,6 +223,19 @@ class SentenceBuilder(QFrame):
         
         self._update_display()
     
+    def set_sentence(self, text):
+        """Set sentence directly (used by accumulator)."""
+        self._sentence = text
+        self._update_display()
+    
+    def set_buffer_preview(self, preview):
+        """Show buffer preview in accumulation mode."""
+        if preview:
+            self.buffer_label.setText(f"📦 Buffer: {preview}")
+            self.buffer_label.show()
+        else:
+            self.buffer_label.hide()
+    
     def _update_display(self):
         """Update sentence display."""
         if self._sentence:
@@ -219,6 +248,7 @@ class SentenceBuilder(QFrame):
         self._sentence = ""
         self._last_letter = ""
         self._update_display()
+        self.buffer_label.hide()
         self.clear_requested.emit()
     
     def get_sentence(self):
@@ -263,8 +293,122 @@ class ModeToggle(QFrame):
         return self._current_mode
 
 
+class TranslationModeToggle(QFrame):
+    """Toggle between instant and sentence translation modes."""
+    
+    mode_changed = Signal(str)  # 'instant' or 'sentence'
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("card")
+        self._current_mode = "instant"
+        self._setup_ui()
+    
+    def _setup_ui(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+        
+        label = QLabel("Translation Mode:")
+        label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-weight: bold;")
+        layout.addWidget(label)
+        
+        self.instant_btn = QPushButton("⚡ Instant (Letter)")
+        self.instant_btn.setCheckable(True)
+        self.instant_btn.setChecked(True)
+        self.instant_btn.setToolTip("Show each letter immediately as detected")
+        self.instant_btn.clicked.connect(lambda: self._set_mode("instant"))
+        
+        self.sentence_btn = QPushButton("📝 Sentence")
+        self.sentence_btn.setCheckable(True)
+        self.sentence_btn.setToolTip("Accumulate gestures and translate as sentence")
+        self.sentence_btn.clicked.connect(lambda: self._set_mode("sentence"))
+        
+        layout.addWidget(self.instant_btn)
+        layout.addWidget(self.sentence_btn)
+        layout.addStretch()
+    
+    def _set_mode(self, mode):
+        self._current_mode = mode
+        self.instant_btn.setChecked(mode == "instant")
+        self.sentence_btn.setChecked(mode == "sentence")
+        self.mode_changed.emit(mode)
+    
+    def get_mode(self):
+        return self._current_mode
+
+
+class SourceTabs(QFrame):
+    """Tabs for switching between camera and video sources."""
+    
+    source_changed = Signal(str)  # 'camera' or 'video'
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._current_source = "camera"
+        self._setup_ui()
+    
+    def _setup_ui(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        self.camera_btn = QPushButton("📷 Camera")
+        self.camera_btn.setCheckable(True)
+        self.camera_btn.setChecked(True)
+        self.camera_btn.clicked.connect(lambda: self._set_source("camera"))
+        self.camera_btn.setStyleSheet(self._tab_style(True))
+        
+        self.video_btn = QPushButton("🎬 Video File")
+        self.video_btn.setCheckable(True)
+        self.video_btn.clicked.connect(lambda: self._set_source("video"))
+        self.video_btn.setStyleSheet(self._tab_style(False))
+        
+        layout.addWidget(self.camera_btn)
+        layout.addWidget(self.video_btn)
+        layout.addStretch()
+    
+    def _tab_style(self, active):
+        if active:
+            return f"""
+                QPushButton {{
+                    background-color: {COLORS['accent']};
+                    color: {COLORS['text_primary']};
+                    border: none;
+                    border-radius: 8px 8px 0 0;
+                    padding: 12px 24px;
+                    font-weight: bold;
+                    font-size: 14px;
+                }}
+            """
+        return f"""
+            QPushButton {{
+                background-color: {COLORS['bg_panel']};
+                color: {COLORS['text_secondary']};
+                border: none;
+                border-radius: 8px 8px 0 0;
+                padding: 12px 24px;
+                font-size: 14px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['bg_card']};
+            }}
+        """
+    
+    def _set_source(self, source):
+        self._current_source = source
+        self.camera_btn.setChecked(source == "camera")
+        self.video_btn.setChecked(source == "video")
+        self.camera_btn.setStyleSheet(self._tab_style(source == "camera"))
+        self.video_btn.setStyleSheet(self._tab_style(source == "video"))
+        self.source_changed.emit(source)
+    
+    def get_source(self):
+        return self._current_source
+
+
 class LivePage(QWidget):
-    """Live translation page with camera and predictions."""
+    """Live translation page with camera, video support, and sentence translation."""
     
     # Signals
     back_requested = Signal()
@@ -276,6 +420,21 @@ class LivePage(QWidget):
         self.db = db_service
         self.user = user_data or {}
         self._model_loaded = self.classifier.load()
+        
+        # Gesture accumulator for sentence mode
+        self.accumulator = GestureAccumulator(
+            time_window=TRANSLATION_TIME_WINDOW,
+            confidence_threshold=CONFIDENCE_THRESHOLD
+        )
+        
+        # Translation mode
+        self._translation_mode = "instant"  # 'instant' or 'sentence'
+        
+        # Auto-translate timer
+        self._auto_translate_timer = QTimer()
+        self._auto_translate_timer.timeout.connect(self._check_auto_translate)
+        self._auto_translate_timer.setInterval(500)  # Check every 500ms
+        
         self._setup_ui()
         self._connect_signals()
     
@@ -313,36 +472,59 @@ class LivePage(QWidget):
         
         main_layout.addLayout(header)
         
-        # === MODE TOGGLE ===
+        # === MODE TOGGLES ===
+        toggles_row = QHBoxLayout()
+        toggles_row.setSpacing(16)
+        
         self.mode_toggle = ModeToggle()
-        main_layout.addWidget(self.mode_toggle)
+        self.translation_mode_toggle = TranslationModeToggle()
+        
+        toggles_row.addWidget(self.mode_toggle)
+        toggles_row.addWidget(self.translation_mode_toggle)
+        toggles_row.addStretch()
+        
+        main_layout.addLayout(toggles_row)
+        
+        # === SOURCE TABS ===
+        self.source_tabs = SourceTabs()
+        main_layout.addWidget(self.source_tabs)
         
         # === MAIN CONTENT ===
         content_layout = QHBoxLayout()
         content_layout.setSpacing(24)
         
-        # Left: Camera
-        camera_container = QFrame()
-        camera_container.setObjectName("cameraView")
-        camera_layout = QVBoxLayout(camera_container)
-        camera_layout.setContentsMargins(4, 4, 4, 4)
+        # Left: Source (Camera or Video) - Stacked widget
+        source_container = QFrame()
+        source_container.setObjectName("cameraView")
+        source_layout = QVBoxLayout(source_container)
+        source_layout.setContentsMargins(4, 4, 4, 4)
         
+        self.source_stack = QStackedWidget()
+        
+        # Camera widget
         self.camera_widget = CameraWidget()
-        camera_layout.addWidget(self.camera_widget)
+        self.source_stack.addWidget(self.camera_widget)
         
-        # Camera controls
-        controls = QHBoxLayout()
-        controls.setSpacing(12)
+        # Video player widget
+        self.video_widget = VideoPlayerWidget()
+        self.source_stack.addWidget(self.video_widget)
+        
+        source_layout.addWidget(self.source_stack)
+        
+        # Camera controls (shown when camera is active)
+        self.camera_controls = QFrame()
+        camera_ctrl_layout = QHBoxLayout(self.camera_controls)
+        camera_ctrl_layout.setSpacing(12)
         
         self.start_btn = QPushButton("▶️ Start Camera")
         self.start_btn.setObjectName("primary")
         self.start_btn.clicked.connect(self._toggle_camera)
         
-        controls.addStretch()
-        controls.addWidget(self.start_btn)
-        controls.addStretch()
+        camera_ctrl_layout.addStretch()
+        camera_ctrl_layout.addWidget(self.start_btn)
+        camera_ctrl_layout.addStretch()
         
-        camera_layout.addLayout(controls)
+        source_layout.addWidget(self.camera_controls)
         
         # Right: Prediction Panel
         right_panel = QVBoxLayout()
@@ -351,10 +533,32 @@ class LivePage(QWidget):
         self.prediction_display = PredictionDisplay()
         self.sentence_builder = SentenceBuilder()
         
+        # Stop/Translate button (for sentence mode)
+        self.translate_btn = QPushButton("🛑 Stop & Translate")
+        self.translate_btn.setObjectName("primary")
+        self.translate_btn.clicked.connect(self._manual_translate)
+        self.translate_btn.setMinimumHeight(50)
+        self.translate_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['success']};
+                color: {COLORS['text_primary']};
+                border: none;
+                border-radius: 12px;
+                padding: 16px;
+                font-weight: bold;
+                font-size: 16px;
+            }}
+            QPushButton:hover {{
+                background-color: #00b359;
+            }}
+        """)
+        self.translate_btn.hide()  # Hidden in instant mode
+        
         right_panel.addWidget(self.prediction_display, 2)
+        right_panel.addWidget(self.translate_btn)
         right_panel.addWidget(self.sentence_builder, 1)
         
-        content_layout.addWidget(camera_container, 3)
+        content_layout.addWidget(source_container, 3)
         content_layout.addLayout(right_panel, 2)
         
         main_layout.addLayout(content_layout)
@@ -368,12 +572,84 @@ class LivePage(QWidget):
             lambda f: self.fps_pill.setText(f"FPS: {f:.0f}")
         )
         self.camera_widget.dynamic_gesture_detected.connect(self._on_dynamic_gesture)
+        self.camera_widget.emotion_detected.connect(self._on_emotion_detected)
+        self.camera_widget.heuristic_gesture_detected.connect(self._on_heuristic_gesture)
         
-        # Mode toggle
+        # Video widget signals
+        self.video_widget.features_ready.connect(self._on_features)
+        self.video_widget.hand_detected.connect(self._on_hand_detected)
+        self.video_widget.fps_updated.connect(
+            lambda f: self.fps_pill.setText(f"FPS: {f:.0f}")
+        )
+        self.video_widget.dynamic_gesture_detected.connect(self._on_dynamic_gesture)
+        self.video_widget.video_finished.connect(self._on_video_finished)
+        
+        # Mode toggles
         self.mode_toggle.mode_changed.connect(self._on_mode_changed)
+        self.translation_mode_toggle.mode_changed.connect(self._on_translation_mode_changed)
+        
+        # Source tabs
+        self.source_tabs.source_changed.connect(self._on_source_changed)
         
         # Sentence builder
         self.sentence_builder.copy_requested.connect(self._copy_to_clipboard)
+        self.sentence_builder.clear_requested.connect(self._on_sentence_cleared)
+    
+    def _on_source_changed(self, source):
+        """Handle source tab change."""
+        if source == "camera":
+            self.source_stack.setCurrentIndex(0)
+            self.camera_controls.show()
+            # Stop video if playing
+            if self.video_widget.is_active():
+                self.video_widget.release()
+        else:  # video
+            self.source_stack.setCurrentIndex(1)
+            self.camera_controls.hide()
+            # Stop camera if running
+            if self.camera_widget.is_active():
+                self.camera_widget.stop()
+                self.start_btn.setText("▶️ Start Camera")
+    
+    def _on_translation_mode_changed(self, mode):
+        """Handle translation mode change."""
+        self._translation_mode = mode
+        
+        if mode == "sentence":
+            self.translate_btn.show()
+            self.accumulator.start_accumulating()
+            self._auto_translate_timer.start()
+        else:
+            self.translate_btn.hide()
+            self.accumulator.stop_accumulating()
+            self._auto_translate_timer.stop()
+        
+        # Clear state
+        self.accumulator.clear()
+        self.sentence_builder.set_buffer_preview("")
+    
+    def _check_auto_translate(self):
+        """Check if auto-translate should trigger."""
+        if self._translation_mode != "sentence":
+            return
+        
+        if self.accumulator.check_auto_translate():
+            self._manual_translate()
+    
+    def _manual_translate(self):
+        """Manually trigger translation in sentence mode."""
+        if self.accumulator.get_buffer_count() == 0:
+            return
+        
+        # Get translated text
+        translated = self.accumulator.translate_and_clear()
+        
+        if translated:
+            self.sentence_builder.set_sentence(translated)
+            self.sentence_builder.set_buffer_preview("")
+            
+            # Save to history
+            self._save_translation(translated, 1.0, "sentence")
     
     def _toggle_camera(self):
         """Start/stop camera."""
@@ -396,7 +672,7 @@ class LivePage(QWidget):
     @Slot(object)
     def _on_features(self, features):
         """Handle extracted features for prediction."""
-        if not self._model_loaded or not features is not None:
+        if not self._model_loaded or features is None:
             return
         
         # Only predict in static mode
@@ -405,12 +681,19 @@ class LivePage(QWidget):
         
         label, confidence = self.classifier.predict(features)
         
-        if label and confidence > 0.75:
+        if label and confidence > CONFIDENCE_THRESHOLD:
             self.prediction_display.update_prediction(label, confidence)
-            self.sentence_builder.add_letter(label)
             
-            # Save to history
-            self._save_translation(label, confidence, "static")
+            if self._translation_mode == "instant":
+                # Instant mode: add directly to sentence
+                self.sentence_builder.add_letter(label)
+                self._save_translation(label, confidence, "static")
+            else:
+                # Sentence mode: add to accumulator
+                self.accumulator.add_gesture(label, confidence, "static")
+                self.sentence_builder.set_buffer_preview(
+                    self.accumulator.get_buffer_preview()
+                )
     
     @Slot(str, float)
     def _on_dynamic_gesture(self, name, confidence):
@@ -420,20 +703,69 @@ class LivePage(QWidget):
         
         display_name = f"✨{name}"
         self.prediction_display.update_prediction(display_name, confidence)
-        self.sentence_builder.add_letter(display_name)
         
-        # Save to history
-        self._save_translation(name, confidence, "dynamic")
+        if self._translation_mode == "instant":
+            self.sentence_builder.add_letter(display_name)
+            self._save_translation(name, confidence, "dynamic")
+        else:
+            self.accumulator.add_gesture(name, confidence, "dynamic")
+            self.sentence_builder.set_buffer_preview(
+                self.accumulator.get_buffer_preview()
+            )
     
     @Slot(bool)
     def _on_hand_detected(self, detected):
         """Handle hand detection status."""
         self.prediction_display.set_hand_detected(detected)
     
+    @Slot(str, float)
+    def _on_emotion_detected(self, emotion_name, confidence):
+        """Handle detected emotion from face detection."""
+        # Update status in prediction display with emotion
+        emoji_map = {
+            'happy': '😊',
+            'sad': '😢',
+            'surprised': '😮',
+            'angry': '😠',
+            'neutral': '😐'
+        }
+        emoji = emoji_map.get(emotion_name, '😐')
+        self.prediction_display.status_label.setText(f"{emoji} Feeling: {emotion_name.capitalize()}")
+    
+    @Slot(str, float)
+    def _on_heuristic_gesture(self, gesture_name, confidence):
+        """Handle heuristic gesture detection (more reliable than ML model)."""
+        # This uses geometry-based detection which is more reliable
+        if self.mode_toggle.get_mode() != "static":
+            return
+        
+        # Update display with heuristic prediction
+        self.prediction_display.update_prediction(f"✨{gesture_name}", confidence)
+        
+        if self._translation_mode == "instant":
+            self.sentence_builder.add_letter(gesture_name)
+            self._save_translation(gesture_name, confidence, "heuristic")
+        else:
+            self.accumulator.add_gesture(gesture_name, confidence, "heuristic")
+            self.sentence_builder.set_buffer_preview(
+                self.accumulator.get_buffer_preview()
+            )
+    
     def _on_mode_changed(self, mode):
         """Handle mode change."""
         self.camera_widget.set_dynamic_gestures_enabled(mode == "dynamic")
+        self.video_widget.set_dynamic_gestures_enabled(mode == "dynamic")
         self.prediction_display.reset()
+    
+    def _on_video_finished(self):
+        """Handle video playback finished."""
+        # Auto-translate when video ends in sentence mode
+        if self._translation_mode == "sentence":
+            self._manual_translate()
+    
+    def _on_sentence_cleared(self):
+        """Handle sentence builder clear."""
+        self.accumulator.clear()
     
     def _save_translation(self, label, confidence, gesture_type):
         """Save translation to history (async)."""
@@ -450,7 +782,7 @@ class LivePage(QWidget):
     
     def start_camera(self):
         """Start camera externally."""
-        if not self.camera_widget.is_active():
+        if self.source_tabs.get_source() == "camera" and not self.camera_widget.is_active():
             self._toggle_camera()
     
     def stop_camera(self):
@@ -460,4 +792,6 @@ class LivePage(QWidget):
     
     def cleanup(self):
         """Cleanup resources."""
+        self._auto_translate_timer.stop()
         self.camera_widget.release()
+        self.video_widget.release()
