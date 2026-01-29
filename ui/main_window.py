@@ -13,7 +13,7 @@ from PySide6.QtGui import QFont, QColor
 from ui.styles import DARK_THEME, COLORS, ICONS
 from ui.pages.login_page import LoginPage
 from ui.pages.dashboard_page import DashboardPage
-from ui.pages.live_page import LivePage
+from ui.pages.live_translation_page import LivePage  # Updated to new pipeline
 from ui.pages.history_page import HistoryPage
 from ui.pages.profile_page import ProfilePage
 from ui.pages.admin_page import AdminPage

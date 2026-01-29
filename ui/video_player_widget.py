@@ -3,6 +3,7 @@ Video Player Widget - Video upload and playback controls for sign language detec
 
 Displays pre-recorded video with player controls (play/pause, seek, speed)
 and integrates with the gesture processing pipeline.
+Uses VIDEO mode for MediaPipe hand tracking for better temporal consistency.
 """
 from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -17,7 +18,9 @@ from detector.video_source import VideoFileSource
 from detector.hand_tracker import HandTracker
 from detector.features import FeatureExtractor
 from detector.dynamic_gestures import DynamicGestureTracker
+from ml.heuristic_classifier import HeuristicClassifier
 from ui.styles import COLORS
+from config import VIDEO_DETECTION_CONFIDENCE
 
 
 class VideoPlayerWidget(QFrame):
@@ -28,6 +31,7 @@ class VideoPlayerWidget(QFrame):
     hand_detected = Signal(bool)              # Emitted when hand detection status changes
     fps_updated = Signal(float)               # Emitted with current FPS
     dynamic_gesture_detected = Signal(str, float)  # (gesture_name, confidence)
+    heuristic_gesture_detected = Signal(str, float)  # Reliable gesture from geometry
     video_loaded = Signal(str)                # Emitted when video is loaded (filename)
     video_finished = Signal()                 # Emitted when video reaches end
     progress_updated = Signal(float)          # Emitted with progress (0-1)
@@ -36,11 +40,15 @@ class VideoPlayerWidget(QFrame):
         super().__init__(parent)
         self.setObjectName("videoPlayerFrame")
         
-        # Components
+        # Components - Use VIDEO mode for better tracking in pre-recorded videos
         self.video_source = VideoFileSource()
-        self.hand_tracker = HandTracker()
+        self.hand_tracker = HandTracker(
+            use_video_mode=True, 
+            detection_confidence=VIDEO_DETECTION_CONFIDENCE
+        )
         self.feature_extractor = FeatureExtractor()
         self.dynamic_tracker = DynamicGestureTracker()
+        self.heuristic_classifier = HeuristicClassifier()
         
         # State
         self._is_loaded = False
@@ -282,8 +290,10 @@ class VideoPlayerWidget(QFrame):
         self.stop_btn.setEnabled(True)
         self.progress_slider.setEnabled(True)
         
-        # Reset state
+        # Reset state for new video
         self.dynamic_tracker.clear()
+        self.heuristic_classifier.clear()
+        self.hand_tracker.reset_timestamp()
         
         # Emit signal
         self.video_loaded.emit(filename)
@@ -386,7 +396,7 @@ class VideoPlayerWidget(QFrame):
     
     def _process_and_display(self, frame_bgr, frame_rgb):
         """Process frame for hand detection and display."""
-        # Process with MediaPipe
+        # Process with MediaPipe (uses VIDEO mode for temporal consistency)
         self.hand_tracker.process(frame_rgb)
         
         # Check hand detection
@@ -400,9 +410,14 @@ class VideoPlayerWidget(QFrame):
         if hand_detected:
             landmarks = self.hand_tracker.get_landmarks()
             
-            # Extract features
+            # Extract features for ML-based gesture recognition
             features = self.feature_extractor.extract(landmarks)
             self.features_ready.emit(features)
+            
+            # Heuristic gesture detection (more reliable than ML on varied video content)
+            heuristic_label, heuristic_conf = self.heuristic_classifier.predict(landmarks)
+            if heuristic_label and heuristic_conf > 0.5:
+                self.heuristic_gesture_detected.emit(heuristic_label, heuristic_conf)
         
         # Dynamic gesture tracking
         if self.dynamic_gestures_enabled:

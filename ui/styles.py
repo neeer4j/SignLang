@@ -13,6 +13,8 @@ COLORS = {
     'bg_card_hover': '#2d2d3d',    # Card hover state
     'bg_input': '#16161e',         # Input fields
     'bg_sidebar': '#12121a',       # Sidebar
+    'bg_dark': '#0a0a0f',          # Darker background for visualizations
+    'bg_secondary': '#1a1a24',     # Secondary background
     
     # Primary - Vibrant Purple/Indigo
     'primary': '#8b5cf6',          # Violet-500

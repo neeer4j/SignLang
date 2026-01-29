@@ -1,109 +1,53 @@
-app name: sign language detector v2.0
+app name: sign language detector v2.1
 
-what it does:
-- real-time ASL (American Sign Language) recognition from webcam
-- tracks hands with mediapipe and shows landmarks
-- uses ML (random forest) to classify hand signs into letters/gestures
-- supports both static letters (A-Z) and dynamic gestures (wave, thumbs up)
-- facial emotion detection (happy, sad, surprised, angry, neutral)
-- video file processing for offline sign language recognition
-- sentence-level translation with auto-translate timeout
-- saves translation history locally with user authentication
-- modern professional UI with multiple pages
+what is this:
+basically a python app that sees your hands and tells you what you're saying in sign language.
+works with your webcam or you can upload a video file.
+supports american sign language (asl) alphabets and some dynamic gestures like waving.
 
-features:
-- login/signup with local SQLite database (secure password hashing)
-- animated dashboard with usage statistics
-- live translation with real-time predictions
-- video file upload and processing with playback controls
-- sentence builder from detected signs (instant or batched mode)
-- facial emotion recognition with overlay display
-- translation history with search and filter
-- user profile and settings
-- static mode (letters) and dynamic mode (gestures)
-- offline-first - no internet required
+cool stuff it does:
+- tracks your hands in real-time (uses mediapipe)
+- tells you what letter you're signing (uses random forest ml model)
+- reads your face too and tells you if you look happy, sad, angry etc
+- works with uploaded videos:
+  - supports mp4, avi, mov, mkv, webm
+  - tracks hands properly now (no jittery mess) because we used video mode
+  - lower thresholds for videos so it catches blurry hands better
+  - has fallback geometry detection if the ML model gets confused
+- translates sentences:
+  - type out full sentences by signing letter by letter
+  - waits for you to finish then auto-translates
+- saves your history so you can see what you said later
+- secure login/signup system (uses local sqlite db)
+- dark mode ui that looks actually decent (pyside6/qt)
+- new hybrid mode: recognizes both letters AND dynamic gestures at the same time (best for normal signing)
 
 tech stack:
 - python 3.x
-- PySide6 for UI (Qt6)
-- opencv for video capture
-- mediapipe for hand landmark detection AND face mesh
-- scikit-learn for ML classification
-- SQLite for local database (auth + history)
-- PBKDF2 for secure password hashing
+- pyside6 (for the gui)
+- opencv (to see stuff)
+- mediapipe (to track hands and face)
+- scikit-learn (for the smarts)
+- sqlite (to save stuff)
 
-folder structure:
-├── main.py                 # app entry point
-├── config.py               # configuration settings
-├── signlanguage.db         # local SQLite database (auto-created)
-├── requirements.txt        # python dependencies
-│
-├── backend/
-│   └── services/
-│       └── db.py           # database service (auth, translations)
-│
-├── detector/
-│   ├── camera.py           # webcam handling
-│   ├── hand_tracker.py     # mediapipe hand tracking
-│   ├── features.py         # feature extraction
-│   ├── dynamic_gestures.py # gesture recognition
-│   ├── video_source.py     # abstract video input (webcam/file)
-│   └── face_detector.py    # facial emotion detection (NEW)
-│
-├── ml/
-│   ├── classifier.py       # prediction with smoothing
-│   ├── data_collector.py   # collect training data
-│   ├── trainer.py          # train ML model
-│   └── gesture_accumulator.py # sentence-mode gesture buffering (NEW)
-│
-├── ui/
-│   ├── main_window.py      # main app shell with navigation
-│   ├── styles.py           # premium dark theme
-│   ├── camera_widget.py    # camera display widget (+ emotion overlay)
-│   ├── video_player_widget.py # video file player (NEW)
-│   ├── control_panel.py    # controls
-│   ├── prediction_panel.py # prediction display
-│   └── pages/
-│       ├── login_page.py    # authentication
-│       ├── dashboard_page.py # main hub
-│       ├── live_page.py     # live translation (camera + video tabs)
-│       ├── history_page.py  # translation history
-│       └── profile_page.py  # user settings
-│
-├── models/
-│   ├── gesture_model.pkl   # trained sklearn model
-│   ├── labels.pkl          # label encoder
-│   └── hand_landmarker.task # mediapipe model
-│
-└── data/                   # training data
-
-user flow:
-1. launch app -> login page
-2. create account or sign in (or skip for guest mode)
-3. dashboard shows stats and navigation
-4. click "Live Translation" -> camera/video with predictions
-5. choose Camera (real-time) or Video File (upload .mp4, etc.)
-6. choose Translation Mode: Instant (letter-by-letter) or Sentence (batched)
-7. make hand signs -> app recognizes and shows letters + emotion
-8. click "Stop & Translate" in sentence mode to finalize
-9. translations auto-saved to history (if logged in)
-10. view history page -> see past translations
-11. profile page -> settings and logout
-
-run it:
+how to run:
 python main.py
 
-new in v2.0:
-- video file support (.mp4, .avi, .mov, .mkv, .webm)
-- facial emotion detection (5 emotions: happy, sad, surprised, angry, neutral)
-- sentence-mode translation with auto-translate timeout
-- video playback controls (play/pause, seek, speed 0.25x-2x)
-- improved training data generator (17,000+ samples)
+folder structure:
+main.py -> start here
+config.py -> settings like camera id and thresholds
+backend/ -> database stuff
+detector/ -> all the computer vision magic (camera, hand tracking, face detect)
+ml/ -> machine learning stuff (classifier, trainer)
+ui/ -> all the windows and widgets
+models/ -> where the trained brain lives
+data/ -> training images
 
-architecture:
-- modular design (ML separate from UI, database separate from both)
-- stateless backend service
-- multi-page navigation with sidebar
-- async database operations
-- session-based authentication
-- unified video source abstraction for camera and file input
+dev notes:
+- the hand tracker for video files uses timestamps now, so it knows "frame 2 comes after frame 1" which makes tracking way smoother.
+- we added a "heuristic classifier" which basically just checks finger positions with math properties. it's super reliable for simple stuff like pointing or fists.
+- the video player connects to the same prediction logic as the camera, so everything works the same way.
+- auto-translate timeout is configurable in config.py if you sign too slow or fast.
+
+credits:
+built by a very tired developer.

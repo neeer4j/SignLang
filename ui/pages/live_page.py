@@ -256,14 +256,14 @@ class SentenceBuilder(QFrame):
 
 
 class ModeToggle(QFrame):
-    """Toggle between static and dynamic gesture modes."""
+    """Toggle between static, dynamic, and hybrid modes."""
     
-    mode_changed = Signal(str)  # 'static' or 'dynamic'
+    mode_changed = Signal(str)  # 'static', 'dynamic', or 'hybrid'
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("card")
-        self._current_mode = "static"
+        self._current_mode = "hybrid"  # Default to hybrid for "normal" usage
         self._setup_ui()
     
     def _setup_ui(self):
@@ -271,22 +271,28 @@ class ModeToggle(QFrame):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
         
-        self.static_btn = QPushButton("🔤 Letters (Static)")
+        self.static_btn = QPushButton("🔤 Letters")
         self.static_btn.setCheckable(True)
-        self.static_btn.setChecked(True)
         self.static_btn.clicked.connect(lambda: self._set_mode("static"))
         
-        self.dynamic_btn = QPushButton("👋 Gestures (Dynamic)")
+        self.dynamic_btn = QPushButton("👋 Gestures")
         self.dynamic_btn.setCheckable(True)
         self.dynamic_btn.clicked.connect(lambda: self._set_mode("dynamic"))
         
+        self.hybrid_btn = QPushButton("⚡ Both (Hybrid)")
+        self.hybrid_btn.setCheckable(True)
+        self.hybrid_btn.setChecked(True)
+        self.hybrid_btn.clicked.connect(lambda: self._set_mode("hybrid"))
+        
         layout.addWidget(self.static_btn)
         layout.addWidget(self.dynamic_btn)
+        layout.addWidget(self.hybrid_btn)
     
     def _set_mode(self, mode):
         self._current_mode = mode
         self.static_btn.setChecked(mode == "static")
         self.dynamic_btn.setChecked(mode == "dynamic")
+        self.hybrid_btn.setChecked(mode == "hybrid")
         self.mode_changed.emit(mode)
     
     def get_mode(self):
@@ -582,6 +588,7 @@ class LivePage(QWidget):
             lambda f: self.fps_pill.setText(f"FPS: {f:.0f}")
         )
         self.video_widget.dynamic_gesture_detected.connect(self._on_dynamic_gesture)
+        self.video_widget.heuristic_gesture_detected.connect(self._on_heuristic_gesture)
         self.video_widget.video_finished.connect(self._on_video_finished)
         
         # Mode toggles
@@ -675,8 +682,9 @@ class LivePage(QWidget):
         if not self._model_loaded or features is None:
             return
         
-        # Only predict in static mode
-        if self.mode_toggle.get_mode() != "static":
+        # Predict in static or hybrid mode
+        mode = self.mode_toggle.get_mode()
+        if mode not in ["static", "hybrid"]:
             return
         
         label, confidence = self.classifier.predict(features)
@@ -698,7 +706,8 @@ class LivePage(QWidget):
     @Slot(str, float)
     def _on_dynamic_gesture(self, name, confidence):
         """Handle dynamic gesture detection."""
-        if self.mode_toggle.get_mode() != "dynamic":
+        mode = self.mode_toggle.get_mode()
+        if mode not in ["dynamic", "hybrid"]:
             return
         
         display_name = f"✨{name}"
@@ -735,8 +744,9 @@ class LivePage(QWidget):
     @Slot(str, float)
     def _on_heuristic_gesture(self, gesture_name, confidence):
         """Handle heuristic gesture detection (more reliable than ML model)."""
-        # This uses geometry-based detection which is more reliable
-        if self.mode_toggle.get_mode() != "static":
+        # Predict in static or hybrid mode
+        mode = self.mode_toggle.get_mode()
+        if mode not in ["static", "hybrid"]:
             return
         
         # Update display with heuristic prediction
@@ -753,8 +763,10 @@ class LivePage(QWidget):
     
     def _on_mode_changed(self, mode):
         """Handle mode change."""
-        self.camera_widget.set_dynamic_gestures_enabled(mode == "dynamic")
-        self.video_widget.set_dynamic_gestures_enabled(mode == "dynamic")
+        # Enable dynamic gestures for Dynamic AND Hybrid modes
+        enable_dynamic = mode in ["dynamic", "hybrid"]
+        self.camera_widget.set_dynamic_gestures_enabled(enable_dynamic)
+        self.video_widget.set_dynamic_gestures_enabled(enable_dynamic)
         self.prediction_display.reset()
     
     def _on_video_finished(self):
